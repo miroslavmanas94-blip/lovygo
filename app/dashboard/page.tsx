@@ -20,7 +20,20 @@ function PairingPanel() {
   const [name, setName] = useState(profile?.display_name ?? "");
   const [bio, setBio] = useState(profile?.bio ?? "");
   const supabase = getSupabaseBrowserClient();
-  const needsProfile = !profile?.display_name || !profile.bio;
+  const needsProfile = !profile?.display_name || !profile.bio || !profile.avatar_url;
+
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.auth.getUser().then(({ data }) => {
+      const metadataCode = data.user?.user_metadata.couple_invite_code;
+      const pendingCode = sessionStorage.getItem("lovygo-pending-invite");
+      const savedCode = typeof metadataCode === "string" ? metadataCode : pendingCode;
+      if (savedCode) {
+        setCode(savedCode.toUpperCase());
+        setJoining(true);
+      }
+    });
+  }, [supabase]);
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,7 +66,12 @@ function PairingPanel() {
       : await supabase.rpc("create_couple", { relationship_date: date || null });
     setBusy(false);
     if (result.error) notify(result.error.message.includes("invalid") ? "Kód není platný nebo už byl použit." : "Pár se nepodařilo propojit. Zkuste to znovu.");
-    else { notify(joining ? "Jste propojeni. Váš společný prostor je připraven." : "Váš prostor je připravený. Pošlete partnerovi kód."); await refresh(); }
+    else {
+      sessionStorage.removeItem("lovygo-pending-invite");
+      if (joining) await supabase.auth.updateUser({ data: { couple_invite_code: null } });
+      notify(joining ? "Jste propojeni. Váš společný prostor je připraven." : "Váš prostor je připravený. Pošlete partnerovi kód.");
+      await refresh();
+    }
   }
 
   return <div className="mx-auto max-w-[760px] space-y-5 page-enter">
@@ -72,7 +90,7 @@ function PairingPanel() {
     </div>}
     {!needsProfile && <form className="glass space-y-4 rounded-[22px] p-5 sm:p-7" onSubmit={connect}>
       <div><p className="eyebrow">{joining ? "Připojení" : "Nový pár"}</p><h2 className="mt-1 text-xl font-medium">{joining ? "Zadejte pozvánkový kód" : "Nastavte začátek vztahu"}</h2></div>
-      {joining ? <input className="field max-w-sm uppercase tracking-[.12em]" value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} placeholder="LOVE-8K9P2" pattern="LOVE-[A-F0-9]{5}" required /> : <label className="block max-w-sm space-y-2 text-sm text-white/60">Datum začátku vztahu<span className="relative block"><CalendarDays size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/35" /><input className="field pl-11" type="date" value={date} onChange={(event) => setDate(event.target.value)} max={new Date().toISOString().slice(0, 10)} /></span></label>}
+      {joining ? <input className="field max-w-sm uppercase tracking-[.12em]" value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} placeholder="LOVE-8A9B2" pattern="LOVE-[A-F0-9]{5}" required /> : <label className="block max-w-sm space-y-2 text-sm text-white/60">Datum začátku vztahu<span className="relative block"><CalendarDays size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/35" /><input className="field pl-11" type="date" value={date} onChange={(event) => setDate(event.target.value)} max={new Date().toISOString().slice(0, 10)} /></span></label>}
       <button className="button-primary" disabled={busy || needsProfile}>{busy ? "Propojuji…" : joining ? "Připojit se" : "Vytvořit společný prostor"}<Heart size={16} /></button>
     </form>}
   </div>;

@@ -7,6 +7,7 @@ import type { CoupleData, UserProfile } from "@/types";
 import Sidebar from "@/components/Sidebar";
 import BottomNav from "@/components/BottomNav";
 import { Heart, X } from "lucide-react";
+import Brand from "@/components/Brand";
 
 type AppSessionValue = {
   userId: string | null;
@@ -55,8 +56,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setUserId(user.id);
     let { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
     if (!data) {
-      const inserted = await supabase.from("profiles").upsert({ id: user.id, display_name: user.user_metadata.display_name ?? null }).select("*").single();
+      const inserted = await supabase.from("profiles").upsert({ id: user.id, display_name: user.user_metadata.display_name ?? null, bio: user.user_metadata.bio ?? null }).select("*").single();
       data = inserted.data;
+    } else if (!data.bio && typeof user.user_metadata.bio === "string") {
+      const hydrated = await supabase.from("profiles").update({ bio: user.user_metadata.bio }).eq("id", user.id).select("*").single();
+      if (hydrated.data) data = hydrated.data;
     }
     const current = data as UserProfile | null;
     setProfile(current);
@@ -106,6 +110,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <Sidebar />
         <main className="min-h-screen pb-24 md:pl-[248px] md:pb-8">
           <div className="mx-auto w-full max-w-[1380px] px-5 pt-7 sm:px-8 md:px-10 md:pt-10">
+            <div className="mb-7 flex items-center justify-between md:hidden"><Brand href="/dashboard" size={38} /><span className="max-w-[48%] truncate text-xs text-white/45">{profile?.display_name ?? "Prostor pro vás dva"}</span></div>
             {loading ? <div className="space-y-5"><div className="skeleton h-8 w-44 rounded-lg" /><div className="skeleton h-56 rounded-[24px]" /></div> : children}
           </div>
         </main>

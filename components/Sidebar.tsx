@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Compass, Gamepad2, Heart, Home, LogOut, MessageCircle, MonitorPlay } from "lucide-react";
+import { Compass, Gamepad2, Home, LogOut, MessageCircle, MonitorPlay } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import { useAppSession } from "@/components/AppShell";
 import Avatar from "@/components/Avatar";
+import Brand from "@/components/Brand";
 
 const navigation = [
   { href: "/dashboard", label: "Domů", icon: Home },
@@ -26,7 +27,7 @@ export default function Sidebar() {
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] flex-col border-r border-white/[.07] bg-[#09090f]/70 px-5 py-7 backdrop-blur-2xl md:flex">
-      <Link href="/dashboard" className="mb-12 flex items-center gap-3 px-2"><span className="grid size-10 place-items-center rounded-2xl border border-pink-300/20 bg-pink-500/10 text-[#ff7aaa]"><Heart size={19} fill="currentColor" /></span><span className="text-[18px] font-semibold">lovygo</span></Link>
+      <Brand href="/dashboard" size={43} />
       <p className="eyebrow mb-3 px-3">Váš společný prostor</p>
       <nav className="space-y-1" aria-label="Hlavní navigace">
         {navigation.map(({ href, label, icon: Icon }) => {
