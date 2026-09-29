@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export async function GET(request: NextRequest) {
-  const destination = new URL("/dashboard", request.url);
+  const requestedPath = request.nextUrl.searchParams.get("next");
+  const isPasswordRecovery = requestedPath === "/auth/update-password";
+  const destination = new URL(isPasswordRecovery ? "/auth/update-password" : "/dashboard", request.url);
   const supabase = await createSupabaseServerClient();
 
   if (!supabase) {
@@ -32,7 +34,7 @@ export async function GET(request: NextRequest) {
     .eq("id", data.user.id)
     .maybeSingle();
 
-  if (!profile?.couple_id) {
+  if (!profile?.couple_id && !isPasswordRecovery) {
     const inviteCode = data.user.user_metadata.couple_invite_code;
     if (typeof inviteCode === "string" && inviteCode.trim()) {
       await supabase.rpc("join_couple", { code: inviteCode.trim().toUpperCase() });
