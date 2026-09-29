@@ -10,7 +10,7 @@ import LovePetWidget from "@/components/LovePetWidget";
 import Avatar from "@/components/Avatar";
 
 function PairingPanel() {
-  const { profile, userId, refresh, notify } = useAppSession();
+  const { profile, userId, couple, refresh, notify } = useAppSession();
   const [joining, setJoining] = useState(false);
   const [code, setCode] = useState("");
   const [date, setDate] = useState("");
@@ -84,6 +84,7 @@ function PairingPanel() {
         <button className="button-primary sm:col-span-2 sm:justify-self-start" disabled={busy}>{busy ? "Ukládám…" : "Uložit profil"}<Check size={16} /></button>
       </form>
     </section>}
+    {couple && <section className="glass rounded-[22px] p-5 sm:p-6"><p className="eyebrow">Váš párovací kód</p><p className="mt-2 select-all font-mono text-2xl tracking-[.14em] text-white">{couple.invite_code}</p><p className="mt-2 text-sm text-white/45">Pošlete kód partnerovi. Profilovou fotku můžete doplnit hned vedle.</p></section>}
     {!needsProfile && <div className="grid gap-4 md:grid-cols-2">
       <button className={`glass rounded-[22px] p-6 text-left transition hover:border-pink-200/25 ${!joining ? "border-pink-300/20" : ""}`} onClick={() => setJoining(false)}><span className="grid size-11 place-items-center rounded-2xl bg-pink-400/10 text-[#ff7aaa]"><Heart size={19} /></span><p className="mt-5 text-lg font-medium">Vytvořit nový pár</p><p className="mt-2 text-sm leading-5 text-white/45">Založte společný prostor a pozvěte partnera jedinečným kódem.</p></button>
       <button className={`glass rounded-[22px] p-6 text-left transition hover:border-pink-200/25 ${joining ? "border-pink-300/20" : ""}`} onClick={() => setJoining(true)}><span className="grid size-11 place-items-center rounded-2xl bg-white/[.06] text-white/80"><Link2 size={19} /></span><p className="mt-5 text-lg font-medium">Mám kód od partnera</p><p className="mt-2 text-sm leading-5 text-white/45">Připojte se k již vytvořenému páru.</p></button>
@@ -143,7 +144,7 @@ export default function DashboardPage() {
   const [copied, setCopied] = useState(false);
   if (loading) return null;
   if (!configured) return <section className="glass mx-auto max-w-2xl rounded-[22px] p-6 sm:p-8"><p className="eyebrow">Připojení k databázi</p><h1 className="mt-2 text-2xl font-medium">Nejdřív nastavte Supabase</h1><p className="mt-3 text-sm leading-6 text-white/55">Vytvořte projekt Supabase, vložte URL a veřejný anon key do `.env.local`, spusťte `supabase/schema.sql` a restartujte vývojový server.</p><a className="button-quiet mt-5" href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Otevřít Supabase</a></section>;
-  if (!profile?.couple_id || !couple) return <PairingPanel />;
+  if (!profile?.display_name || !profile.bio || !profile.avatar_url || !profile.couple_id || !couple) return <PairingPanel />;
   const avatar = (person: typeof profile, label: string) => <div className="flex items-center gap-3"><Avatar profile={person} label={label} size="size-12" /><div><p className="text-sm font-medium">{person?.display_name || label}</p><p className="mt-0.5 text-xs text-white/40">{label}</p></div></div>;
   return <div className="page-enter space-y-7">
     <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="eyebrow">Dobrý den, {profile.display_name}</p><h1 className="mt-2 text-3xl font-medium tracking-[-.03em] sm:text-[36px]">Váš společný prostor</h1></div><div className="flex items-center gap-3 text-sm text-white/45"><span className={`size-2 rounded-full ${partner ? "bg-emerald-300 shadow-[0_0_10px_#6ee7b7]" : "bg-amber-200"}`} />{partner ? "Propojeni" : "Kód připraven"}</div></header>

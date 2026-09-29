@@ -35,6 +35,11 @@ export default function AuthPage() {
     if (params.get("error_code") === "otp_expired") {
       setMessage("Potvrzovací odkaz vypršel. Zadejte stejný e-mail a požádejte o nový odkaz.");
       setCanResend(true);
+    } else if (params.get("auth_error") === "confirmation") {
+      setMessage("Potvrzovací odkaz se nepodařilo ověřit. Požádejte o nový e-mail a zkuste to znovu.");
+      setCanResend(true);
+    } else if (params.get("auth_error") === "configuration") {
+      setMessage("Ověřovací odkaz dorazil na web, který nemá nastavené Supabase prostředí.");
     }
     const supabase = getSupabaseBrowserClient();
     setConfigured(Boolean(supabase));
@@ -68,7 +73,7 @@ export default function AuthPage() {
     }
     setBusy(true);
     const result = signingUp
-      ? await supabase.auth.signUp({ email, password, options: { data: { display_name: name.trim(), bio: bio.trim(), couple_invite_code: inviteCode.trim().toUpperCase() || null } } })
+      ? await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}/auth/callback`, data: { display_name: name.trim(), bio: bio.trim(), couple_invite_code: inviteCode.trim().toUpperCase() || null } } })
       : await supabase.auth.signInWithPassword({ email, password });
     if (result.error) {
       setBusy(false);
@@ -78,7 +83,7 @@ export default function AuthPage() {
     }
     if (signingUp && !result.data.session) {
       setBusy(false);
-      setMessage("Účet je založený. Potvrďte e-mail a potom se přihlaste. Z bezpečnostních důvodů se fotka nahraje po potvrzení při prvním vstupu do profilu.");
+      setMessage("Účet je založený. Potvrďte e-mail odkazem, který vás vrátí do Lovygo. Po ověření se vytvoří váš párovací kód; profilovou fotku dokončíte při prvním vstupu.");
       setCanResend(true);
       return;
     }
@@ -104,6 +109,8 @@ export default function AuthPage() {
       if (inviteCode.trim()) {
         const { error: coupleError } = await supabase.rpc("join_couple", { code: inviteCode.trim().toUpperCase() });
         if (coupleError) sessionStorage.setItem("lovygo-pending-invite", inviteCode.trim().toUpperCase());
+      } else {
+        await supabase.rpc("create_couple", { relationship_date: null });
       }
     }
     setBusy(false);
@@ -159,7 +166,7 @@ export default function AuthPage() {
               <div className="flex items-center gap-3 rounded-2xl border border-white/[.07] bg-white/[.025] p-3"><span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full border border-white/10 bg-pink-400/10 text-[#ff8db4]">{avatarPreview ? <Image src={avatarPreview} alt="Náhled profilové fotky" width={48} height={48} unoptimized className="size-full object-cover" /> : <Camera size={18} />}</span><label className="min-w-0 flex-1 cursor-pointer"><span className="block text-sm text-white/75">Profilová fotka</span><span className="mt-1 block text-xs text-white/40">JPG, PNG nebo WebP, max. 5 MB</span><input className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" required onChange={(event) => { const file = event.target.files?.[0] ?? null; setAvatar(file); setAvatarPreview(file ? URL.createObjectURL(file) : ""); }} /></label>{avatar && <Check size={16} className="shrink-0 text-emerald-200" />}</div>
             </>}
             {signingUp && signupStep === 3 && <>
-              <p className="text-sm leading-6 text-white/50">Máte-li kód od partnera, zadejte ho a po vytvoření účtu se připojíte rovnou. Bez kódu můžete pár vytvořit později.</p>
+              <p className="text-sm leading-6 text-white/50">Máte-li kód od partnera, zadejte ho. Jinak vám po ověření e-mailu vytvoříme vlastní pár a kód pro pozvání partnera.</p>
               <label className="block space-y-2 text-sm text-white/65">Párovací kód <span className="text-xs text-white/35">(nepovinné)</span><IconField icon={KeyRound}><input className="icon-field-input uppercase tracking-[.08em] placeholder:normal-case placeholder:tracking-normal" value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} pattern="LOVE-[A-F0-9]{5}" placeholder="LOVE-8A9B2" autoCapitalize="characters" autoCorrect="off" /></IconField></label>
             </>}
             {message && <div role="status" className="rounded-xl border border-white/10 bg-white/[.04] px-4 py-3 text-sm leading-5 text-white/75"><p>{message}</p>{canResend && <button type="button" className="mt-2 inline-flex items-center gap-2 text-[#ff9abc] hover:text-white" disabled={busy} onClick={() => void resendConfirmation()}><Mail size={14} />Odeslat nový potvrzovací e-mail</button>}</div>}
