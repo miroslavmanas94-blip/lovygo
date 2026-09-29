@@ -156,8 +156,12 @@ $$;
 create or replace function public.create_profile_for_user()
 returns trigger language plpgsql security definer set search_path = public
 as $$ begin
-  insert into public.profiles(id, display_name)
-  values(new.id, nullif(new.raw_user_meta_data ->> 'display_name', ''))
+  insert into public.profiles(id, display_name, bio)
+  values(
+    new.id,
+    nullif(btrim(new.raw_user_meta_data ->> 'display_name'), ''),
+    nullif(btrim(new.raw_user_meta_data ->> 'bio'), '')
+  )
   on conflict (id) do nothing;
   return new;
 end $$;

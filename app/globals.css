@@ -14,6 +14,12 @@ a { color: inherit; text-decoration: none; }
 .field { width: 100%; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: rgba(3,3,8,.48); color: var(--ink); padding: 13px 15px; outline: none; transition: border-color .2s ease,box-shadow .2s ease; }
 .field:focus { border-color: rgba(255,77,141,.7); box-shadow: 0 0 0 3px rgba(255,77,141,.12); }
 .field::placeholder { color: #777581; }
+.icon-field { display: flex; width: 100%; min-width: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: rgba(3,3,8,.48); transition: border-color .2s ease,box-shadow .2s ease; }
+.icon-field:focus-within { border-color: rgba(255,77,141,.7); box-shadow: 0 0 0 3px rgba(255,77,141,.12); }
+.icon-field-symbol { display: grid; width: 48px; flex: 0 0 48px; place-items: center; border-right: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.025); color: rgba(255,255,255,.42); }
+.icon-field-input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; padding: 13px 14px; color: var(--ink); }
+.icon-field-input:focus-visible { outline: none; }
+.icon-field-input::placeholder { color: #777581; }
 .button-primary { display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 1px solid rgba(255,122,170,.42); border-radius: 14px; padding: 12px 17px; color: white; background: linear-gradient(135deg,#ff4d8d,#e93678); box-shadow: 0 8px 24px rgba(255,77,141,.19); transition: transform .18s ease,box-shadow .18s ease; }
 .button-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(255,77,141,.28); }
 .button-quiet { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--stroke); border-radius: 13px; padding: 11px 15px; color: #eceaf0; background: rgba(255,255,255,.045); transition: background .18s ease,border-color .18s ease; }
