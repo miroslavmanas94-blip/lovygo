@@ -17,9 +17,12 @@ function getAuthRedirectUrl(nextPath?: string) {
 
 export default function AuthPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot" | "verify-signup" | "verify-recovery" | "set-password">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -32,6 +35,10 @@ export default function AuthPage() {
   const [configured, setConfigured] = useState(true);
   const signingUp = mode === "signup";
   const recoveringPassword = mode === "forgot";
+  const verifyingSignup = mode === "verify-signup";
+  const verifyingRecovery = mode === "verify-recovery";
+  const verifyingOtp = verifyingSignup || verifyingRecovery;
+  const settingNewPassword = mode === "set-password";
 
   useEffect(() => {
     if (!avatarPreview) return;
@@ -55,6 +62,38 @@ export default function AuthPage() {
     });
   }, [router]);
 
+  async function finishSignup(userId: string) {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return false;
+    let avatarPath: string | null = null;
+    if (avatar) {
+      const extension = avatar.name.split(".").pop()?.toLowerCase() ?? "jpg";
+      avatarPath = `${userId}/${crypto.randomUUID()}.${extension}`;
+      const upload = await supabase.storage.from("avatars").upload(avatarPath, avatar, { contentType: avatar.type });
+      if (upload.error) {
+        setMessage("E-mail ověřen, ale profilovou fotku se nepodařilo nahrát. Nahrajte ji po přihlášení.");
+        return false;
+      }
+    }
+
+    const { error: profileError } = await supabase.from("profiles").update({ display_name: name.trim(), bio: bio.trim(), avatar_url: avatarPath }).eq("id", userId);
+    if (profileError) {
+      if (avatarPath) await supabase.storage.from("avatars").remove([avatarPath]);
+      setMessage("E-mail ověřen, ale profil se nepodařilo uložit. Dokončete jej po přihlášení.");
+      return false;
+    }
+
+    const result = pairMode === "join"
+      ? await supabase.rpc("join_couple", { code: inviteCode.trim().toUpperCase() })
+      : await supabase.rpc("create_couple", { relationship_date: null });
+    if (result.error) {
+      if (pairMode === "join") sessionStorage.setItem("lovygo-pending-invite", inviteCode.trim().toUpperCase());
+      else setMessage("Profil je uložený, ale pár se nepodařilo vytvořit. Přihlaste se a zkuste to znovu.");
+      return pairMode === "join";
+    }
+    return true;
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
@@ -72,11 +111,61 @@ export default function AuthPage() {
       setMessage("Aplikace zatím není připojena k Supabase. Doplňte proměnné prostředí a spusťte SQL schema.");
       return;
     }
+    if (verifyingOtp) {
+      setBusy(true);
+      const result = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: otp.trim(),
+        type: verifyingSignup ? "signup" : "recovery",
+      });
+      setBusy(false);
+      if (result.error || !result.data.user) {
+        setMessage("Kód není platný nebo vypršel. Zkontrolujte e-mail a zkuste to znovu.");
+        return;
+      }
+      if (verifyingSignup) {
+        setBusy(true);
+        const success = await finishSignup(result.data.user.id);
+        setBusy(false);
+        if (!success) return;
+        router.replace("/dashboard");
+        router.refresh();
+      } else {
+        setMode("set-password");
+        setOtp("");
+      }
+      return;
+    }
+    if (settingNewPassword) {
+      if (newPassword !== confirmNewPassword) {
+        setMessage("Hesla se neshodují.");
+        return;
+      }
+      setBusy(true);
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      setBusy(false);
+      if (error) {
+        setMessage("Nové heslo se nepodařilo uložit. Požádejte o nový resetovací kód.");
+        return;
+      }
+      setMode("signin");
+      setPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setMessage("Heslo je změněné. Nyní se přihlaste novým heslem.");
+      return;
+    }
     if (recoveringPassword) {
       setBusy(true);
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getAuthRedirectUrl("/auth/update-password") });
       setBusy(false);
-      setMessage(error ? "Resetovací e-mail se nepodařilo odeslat. Zkontrolujte adresu a zkuste to znovu." : "Pokud je tento e-mail registrovaný, přijde na něj odkaz pro nastavení nového hesla.");
+      if (error) {
+        setMessage("Resetovací e-mail se nepodařilo odeslat. Zkontrolujte adresu a zkuste to znovu.");
+        return;
+      }
+      setMode("verify-recovery");
+      setOtp("");
+      setMessage(`Na ${email.trim()} jsme poslali resetovací kód.`);
       return;
     }
     if (signingUp && avatar && avatar.size > 5 * 1024 * 1024) {
@@ -94,43 +183,33 @@ export default function AuthPage() {
     }
     if (signingUp && !result.data.session) {
       setBusy(false);
-      setMessage("Supabase stále vyžaduje potvrzení e-mailem. Vypněte Confirm email v Authentication → Providers → Email; potom registrace proběhne bez ověřovacího e-mailu.");
+      setMode("verify-signup");
+      setOtp("");
+      setMessage(`Na ${email.trim()} jsme poslali ověřovací kód.`);
       return;
     }
     if (signingUp && result.data.user) {
-      let avatarPath: string | null = null;
-      if (avatar) {
-        const extension = avatar.name.split(".").pop()?.toLowerCase() ?? "jpg";
-        avatarPath = `${result.data.user.id}/${crypto.randomUUID()}.${extension}`;
-        const upload = await supabase.storage.from("avatars").upload(avatarPath, avatar, { contentType: avatar.type });
-        if (upload.error) {
-          setBusy(false);
-          setMessage("Účet je založený, ale fotku se nepodařilo nahrát. Přihlaste se a zkuste ji nahrát z profilu.");
-          return;
-        }
-      }
-      const { error: profileError } = await supabase.from("profiles").update({ display_name: name.trim(), bio: bio.trim(), avatar_url: avatarPath }).eq("id", result.data.user.id);
-      if (profileError) {
-        if (avatarPath) await supabase.storage.from("avatars").remove([avatarPath]);
-        setBusy(false);
-        setMessage("Účet je založený, ale profil se nepodařilo uložit. Přihlaste se a dokončete jej v nastavení profilu.");
-        return;
-      }
-      if (pairMode === "join") {
-        const { error: coupleError } = await supabase.rpc("join_couple", { code: inviteCode.trim().toUpperCase() });
-        if (coupleError) sessionStorage.setItem("lovygo-pending-invite", inviteCode.trim().toUpperCase());
-      } else {
-        const { error: coupleError } = await supabase.rpc("create_couple", { relationship_date: null });
-        if (coupleError) {
-          setBusy(false);
-          setMessage("Účet vznikl, ale pár se nepodařilo vytvořit. Přihlaste se a zkuste vytvoření páru znovu.");
-          return;
-        }
-      }
+      const success = await finishSignup(result.data.user.id);
+      setBusy(false);
+      if (!success) return;
     }
     setBusy(false);
     router.replace("/dashboard");
     router.refresh();
+  }
+
+  async function resendOtp() {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase || !email.trim()) {
+      setMessage("Nejdřív zadejte e-mail použitý při registraci.");
+      return;
+    }
+    setBusy(true);
+    const result = verifyingSignup
+      ? await supabase.auth.resend({ type: "signup", email: email.trim(), options: { emailRedirectTo: getAuthRedirectUrl() } })
+      : await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getAuthRedirectUrl("/auth/update-password") });
+    setBusy(false);
+    setMessage(result.error ? "Nový e-mail se nepodařilo odeslat. Zkontrolujte adresu a zkuste to znovu." : `Nový e-mail jsme poslali na ${email.trim()}.`);
   }
 
   const stepLabels = ["Účet", "Profil", "Pár"];
@@ -151,7 +230,7 @@ export default function AuthPage() {
         </section>
 
         <section className="glass w-full rounded-[24px] p-6 sm:p-8">
-          <div className="mb-6"><p className="eyebrow">{mode === "signin" ? "Vítejte zpátky" : signingUp ? `Krok ${signupStep} ze 3 · ${stepLabels[signupStep - 1]}` : "Obnovení přístupu"}</p><h2 className="mt-2 text-[25px] font-medium tracking-[-.02em]">{mode === "signin" ? "Přihlášení" : signingUp ? ["Vaše přihlášení", "Váš profil", "Propojte se"][signupStep - 1] : "Zapomenuté heslo"}</h2></div>
+          <div className="mb-6"><p className="eyebrow">{mode === "signin" ? "Vítejte zpátky" : signingUp ? `Krok ${signupStep} ze 3 · ${stepLabels[signupStep - 1]}` : verifyingSignup ? "Ověření e-mailu" : verifyingRecovery ? "Reset hesla" : settingNewPassword ? "Zabezpečení účtu" : "Obnovení přístupu"}</p><h2 className="mt-2 text-[25px] font-medium tracking-[-.02em]">{mode === "signin" ? "Přihlášení" : signingUp ? ["Vaše přihlášení", "Váš profil", "Propojte se"][signupStep - 1] : verifyingSignup ? "Zadejte ověřovací kód" : verifyingRecovery ? "Zadejte resetovací kód" : settingNewPassword ? "Nastavte nové heslo" : "Zapomenuté heslo"}</h2></div>
           {!configured && <div className="mb-5 rounded-2xl border border-amber-300/20 bg-amber-300/[.07] p-4 text-sm leading-6 text-amber-100/80">Pro zapnutí přihlášení nejdříve nastavte Supabase URL a anon key v `.env.local` a spusťte `supabase/schema.sql`.</div>}
           {signingUp && <ol aria-label="Průběh registrace" className="mb-6 grid grid-cols-3 gap-2">{stepLabels.map((label, index) => { const number = index + 1; const active = number === signupStep; const complete = number < signupStep; return <li key={label} aria-current={active ? "step" : undefined} className={`rounded-xl border px-3 py-2.5 ${active ? "border-pink-200/25 bg-pink-400/[.08]" : complete ? "border-emerald-200/10 bg-emerald-300/[.035]" : "border-white/[.07] bg-white/[.02]"}`}><span className={`mr-2 inline-grid size-5 place-items-center rounded-full text-[10px] ${active ? "bg-[#ff4d8d] text-white" : complete ? "bg-emerald-300/15 text-emerald-100" : "bg-white/[.07] text-white/45"}`}>{complete ? <Check size={12} /> : number}</span><span className={`text-xs ${active ? "text-white" : "text-white/45"}`}>{label}</span></li>; })}</ol>}
           <form className="space-y-4" onSubmit={submit}>
@@ -160,7 +239,9 @@ export default function AuthPage() {
               <label className="block space-y-2 text-sm text-white/65">Heslo<IconField icon={LockKeyhole}><input className="icon-field-input" type="password" autoComplete="current-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required placeholder="Alespoň 8 znaků" /></IconField></label>
               <div className="-mt-2 text-right"><button type="button" className="text-xs text-[#ff9abc] transition hover:text-white" onClick={() => { setMode("forgot"); setMessage(""); }}>Zapomněli jste heslo?</button></div>
             </>}
-            {recoveringPassword && <><p className="text-sm leading-6 text-white/50">Zadejte e-mail účtu. Pošleme vám odkaz pro nastavení nového hesla.</p><label className="block space-y-2 text-sm text-white/65">E-mail<IconField icon={Mail}><input className="icon-field-input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="vas@email.cz" /></IconField></label></>}
+            {recoveringPassword && <><p className="text-sm leading-6 text-white/50">Zadejte e-mail účtu. Pošleme vám resetovací kód.</p><label className="block space-y-2 text-sm text-white/65">E-mail<IconField icon={Mail}><input className="icon-field-input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="vas@email.cz" /></IconField></label></>}
+            {verifyingOtp && <><p className="text-sm leading-6 text-white/50">Kód jsme poslali na <span className="text-white/80">{email}</span>. Zadejte šestimístný kód z e-mailu.</p><label className="block space-y-2 text-sm text-white/65">Ověřovací kód<IconField icon={KeyRound}><input className="icon-field-input text-center text-lg tracking-[.35em]" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))} required placeholder="000000" /></IconField></label><button type="button" className="text-sm text-[#ff9abc] transition hover:text-white" disabled={busy} onClick={() => void resendOtp()}>Poslat nový kód</button></>}
+            {settingNewPassword && <><p className="text-sm leading-6 text-white/50">Kód platí jen jednou. Nastavte si nové heslo.</p><label className="block space-y-2 text-sm text-white/65">Nové heslo<IconField icon={LockKeyhole}><input className="icon-field-input" type="password" autoComplete="new-password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required placeholder="Alespoň 8 znaků" /></IconField></label><label className="block space-y-2 text-sm text-white/65">Potvrdit nové heslo<IconField icon={Check}><input className="icon-field-input" type="password" autoComplete="new-password" minLength={8} value={confirmNewPassword} onChange={(event) => setConfirmNewPassword(event.target.value)} required placeholder="Zadejte heslo znovu" /></IconField></label></>}
             {signingUp && signupStep === 1 && <>
               <label className="block space-y-2 text-sm text-white/65">E-mail<IconField icon={Mail}><input className="icon-field-input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="vas@email.cz" /></IconField></label>
               <label className="block space-y-2 text-sm text-white/65">Heslo<IconField icon={LockKeyhole}><input className="icon-field-input" type="password" autoComplete="new-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required placeholder="Alespoň 8 znaků" /></IconField></label>
@@ -176,9 +257,9 @@ export default function AuthPage() {
               {pairMode === "create" ? <p className="rounded-xl border border-white/[.07] bg-white/[.025] px-4 py-3 text-sm leading-6 text-white/50">Po vytvoření účtu se automaticky založí pár a vygeneruje se kód pro pozvání partnera.</p> : <label className="block space-y-2 text-sm text-white/65">Párovací kód od partnera<IconField icon={KeyRound}><input className="icon-field-input uppercase tracking-[.08em] placeholder:normal-case placeholder:tracking-normal" value={inviteCode} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} pattern="LOVE-[A-F0-9]{5}" placeholder="LOVE-8A9B2" autoCapitalize="characters" autoCorrect="off" required /></IconField></label>}
             </>}
             {message && <p role="status" className="rounded-xl border border-white/10 bg-white/[.04] px-4 py-3 text-sm leading-5 text-white/75">{message}</p>}
-            <div className="flex gap-2 pt-1">{signingUp && signupStep > 1 && <button className="button-quiet flex-1" type="button" onClick={() => { setSignupStep((current) => current - 1); setMessage(""); }}>Zpět</button>}<button className="button-primary mt-0 flex-1" disabled={busy || !configured || (signingUp && signupStep === 3 && pairMode === "join" && !inviteCode.trim())} type="submit">{busy ? "Chvilku…" : recoveringPassword ? "Poslat resetovací odkaz" : mode === "signin" ? "Přihlásit se" : signupStep < 3 ? "Pokračovat" : pairMode === "join" ? "Vytvořit účet a připojit" : "Vytvořit účet a pár"}<ArrowRight size={17} /></button></div>
+            <div className="flex gap-2 pt-1">{signingUp && signupStep > 1 && <button className="button-quiet flex-1" type="button" onClick={() => { setSignupStep((current) => current - 1); setMessage(""); }}>Zpět</button>}<button className="button-primary mt-0 flex-1" disabled={busy || !configured || (signingUp && signupStep === 3 && pairMode === "join" && !inviteCode.trim()) || (verifyingOtp && otp.length !== 6)} type="submit">{busy ? "Chvilku…" : verifyingSignup ? "Ověřit e-mail" : verifyingRecovery ? "Ověřit kód" : settingNewPassword ? "Uložit nové heslo" : recoveringPassword ? "Poslat resetovací kód" : mode === "signin" ? "Přihlásit se" : signupStep < 3 ? "Pokračovat" : pairMode === "join" ? "Vytvořit účet a připojit" : "Vytvořit účet a pár"}<ArrowRight size={17} /></button></div>
           </form>
-          <p className="mt-6 text-center text-sm text-white/45">{mode === "signup" ? "Už účet máte?" : recoveringPassword ? "Už si vzpomínáte?" : "Ještě účet nemáte?"}{" "}<button className="text-[#ff91b7] transition hover:text-white" onClick={() => { setMode("signin"); setSignupStep(1); setMessage(""); }}>{recoveringPassword ? "Zpět na přihlášení" : mode === "signup" ? "Přihlásit se" : "Zaregistrovat se"}</button>{mode === "signin" && <> · <button className="text-[#ff91b7] transition hover:text-white" onClick={() => { setMode("signup"); setSignupStep(1); setPairMode("create"); setMessage(""); }}>Zaregistrovat se</button></>}</p>
+          <p className="mt-6 text-center text-sm text-white/45">{mode === "signup" ? "Už účet máte?" : recoveringPassword ? "Už si vzpomínáte?" : verifyingSignup ? "Už máte účet?" : verifyingRecovery || settingNewPassword ? "Chcete zpět na přihlášení?" : "Ještě účet nemáte?"}{" "}<button className="text-[#ff91b7] transition hover:text-white" onClick={() => { setMode("signin"); setSignupStep(1); setMessage(""); }}>{recoveringPassword || verifyingSignup || verifyingRecovery || settingNewPassword ? "Přihlásit se" : mode === "signup" ? "Přihlásit se" : "Zaregistrovat se"}</button></p>
         </section>
       </div>
     </main>

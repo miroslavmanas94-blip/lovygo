@@ -124,7 +124,7 @@ begin
     raise exception 'Already connected to a couple';
   end if;
   loop
-    new_code := 'LOVE-' || upper(substr(encode(gen_random_bytes(5), 'hex'), 1, 5));
+    new_code := 'LOVE-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 5));
     exit when not exists(select 1 from public.couples where invite_code = new_code);
   end loop;
   insert into public.couples(invite_code, user_one, relationship_start)
