@@ -15,6 +15,19 @@ function getAuthRedirectUrl(nextPath?: string) {
   return url.toString();
 }
 
+function waitForRequest<T>(request: PromiseLike<T>, timeoutMs: number) {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<{ timedOut: true }>((resolve) => {
+    timeoutId = window.setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+  });
+  return Promise.race([
+    Promise.resolve(request).then((result) => ({ result })),
+    timeout,
+  ]).finally(() => {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  });
+}
+
 export default function AuthPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"signin" | "signup" | "forgot" | "verify-recovery" | "set-password">("signin");
@@ -181,15 +194,27 @@ export default function AuthPage() {
     }
     if (recoveringPassword) {
       setBusy(true);
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getAuthRedirectUrl("/auth/update-password") });
-      setBusy(false);
-      if (error) {
-        setMessage("Resetovací e-mail se nepodařilo odeslat. Zkontrolujte adresu a zkuste to znovu.");
-        return;
+      try {
+        const response = await waitForRequest(
+          supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getAuthRedirectUrl("/auth/update-password") }),
+          15000,
+        );
+        if ("timedOut" in response) {
+          setMessage("Odesílání trvá déle než obvykle. Zkontrolujte e-mail i spam; pokud kód nepřijde, zkuste to znovu.");
+          return;
+        }
+        if (response.result.error) {
+          setMessage("Resetovací e-mail se nepodařilo odeslat. Zkontrolujte adresu a zkuste to znovu.");
+          return;
+        }
+        setMode("verify-recovery");
+        setOtp("");
+        setMessage(`Na ${email.trim()} jsme poslali resetovací kód.`);
+      } catch {
+        setMessage("Resetovací e-mail se nepodařilo odeslat. Zkontrolujte připojení a zkuste to znovu.");
+      } finally {
+        setBusy(false);
       }
-      setMode("verify-recovery");
-      setOtp("");
-      setMessage(`Na ${email.trim()} jsme poslali resetovací kód.`);
       return;
     }
     if (signingUp && avatar && avatar.size > 5 * 1024 * 1024) {
@@ -232,9 +257,21 @@ export default function AuthPage() {
       return;
     }
     setBusy(true);
-    const result = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getAuthRedirectUrl("/auth/update-password") });
-    setBusy(false);
-    setMessage(result.error ? "Nový e-mail se nepodařilo odeslat. Zkontrolujte adresu a zkuste to znovu." : `Nový e-mail jsme poslali na ${email.trim()}.`);
+    try {
+      const response = await waitForRequest(
+        supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getAuthRedirectUrl("/auth/update-password") }),
+        15000,
+      );
+      setMessage("timedOut" in response
+        ? "Odesílání trvá déle než obvykle. Zkontrolujte e-mail i spam; pokud kód nepřijde, zkuste to znovu."
+        : response.result.error
+          ? "Nový e-mail se nepodařilo odeslat. Zkontrolujte adresu a zkuste to znovu."
+          : `Nový e-mail jsme poslali na ${email.trim()}.`);
+    } catch {
+      setMessage("Nový e-mail se nepodařilo odeslat. Zkontrolujte připojení a zkuste to znovu.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const stepLabels = ["Účet", "Profil", "Pár"];
